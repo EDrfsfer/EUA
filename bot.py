@@ -1581,9 +1581,17 @@ def get_total_tickets(tickets: dict) -> int:
 if __name__ == "__main__":
     # carrega variáveis de ambiente (já usa load_dotenv no topo)
     BOT_TOKEN = os.getenv("BOT_TOKEN")
+    
+    # Adicione estes logs para debug
+    logging.info("Verificando variáveis de ambiente...")
+    logging.info(f"Variáveis disponíveis: {list(os.environ.keys())}")
+    
     if not BOT_TOKEN:
         logging.error("BOT_TOKEN não encontrado nas variáveis de ambiente")
         exit(1)
+    
+    # Log do início do token (seguro, só mostra os primeiros caracteres)
+    logging.info(f"Token encontrado (primeiros caracteres): {BOT_TOKEN[:7]}...")
 
     # inicia Flask em thread antes de iniciar o cliente/bot
     Thread(target=run_flask, daemon=True).start()
