@@ -3,6 +3,8 @@ import discord
 import os
 import logging
 import utils
+import io
+from typing import Literal
 from datetime import datetime
 from discord import app_commands
 from discord.ext import commands
@@ -792,56 +794,71 @@ async def lista(interaction: discord.Interaction, tipo: Literal["simples", "com_
     else:
         await interaction.followup.send(content, ephemeral=True)
 
-@bot.tree.command(name="exportar", description="[ADMIN] Exporta lista de participantes")
+@bot.tree.command(
+    name="exportar",
+    description="[ADMIN] Exporta lista de participantes compatível com Marbles on Stream"
+)
+@app_commands.guild_only()
 @app_commands.default_permissions(administrator=True)
-@app_commands.describe(tipo="Tipo de exportação")
-async def exportar(interaction: discord.Interaction, tipo: Literal["simples", "com_fichas"]):
-    participants = db.get_all_participants()
-    
-    if not participants:
-        await interaction.response.send_message(
-            "📋 Nenhum participante para exportar.",
-            ephemeral=True
-        )
-        return
-    
+@app_commands.describe(tipo='simples|com_fichas')
+async def exportar(interaction: discord.Interaction, tipo: Literal['simples','com_fichas'] = 'com_fichas'):
+    """Gera .txt com uma linha por entrada.
+    'simples' = 1 linha por participante.
+    'com_fichas' = repete o nome por cada ficha e anexa a abreviação quando houver (pronto para Marbles).
+    """
     await interaction.response.defer(ephemeral=True)
-    lines = []
-    
-    if tipo == "simples":
-        # Cria lista de nomes e ordena alfabeticamente (igual ao /lista simples)
-        names = [f"{data['first_name']} {data['last_name']}" for _, data in participants.items()]
-        names.sort(key=lambda s: s.lower())
-        
-        lines.append("📋 Lista de Participantes (Simples)\n")
-        for i, name in enumerate(names, 1):
-            lines.append(f"{i}. {name}")
-    else:
-        lines.append("📋 Lista de Participantes (Com Fichas)\n")
-        # monta a mesma estrutura do /lista com_fichas (sem linhas em branco entre participantes)
-        for user_id, data in participants.items():
-            entries = utils.format_detailed_entry(
-                data["first_name"],
-                data["last_name"],
-                data["tickets"]
-            )
-            lines.extend(entries)
-    
-    content = "\n".join(lines)
-    
-    # Salva em arquivo
-    filename = f"participantes_{tipo}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-    with open(filename, 'w', encoding='utf-8') as f:
-        f.write(content)
-    
-    await interaction.followup.send(
-        f"✅ Lista exportada! Total: {len(participants)} participante(s)",
-        file=discord.File(filename),
-        ephemeral=True
-    )
-    
-    os.remove(filename)
-    logger.info(f"Lista exportada ({tipo}) por {interaction.user}")
+    data = database.get_all_participants() or {}
+
+    lines: list[str] = []
+    for uid, p in data.items():
+        fn = (p.get('first_name') or '').strip()
+        ln = (p.get('last_name') or '').strip()
+        name = f"{fn} {ln}".strip()
+        if not name:
+            continue
+
+        if tipo == 'simples':
+            lines.append(name)
+            continue
+
+        # Modo "com_fichas": repetir conforme fichas, anexando abreviação quando aplicável
+        tickets = p.get('tickets', {}) or {}
+
+        # ficha base (se não houver, assume 1)
+        try:
+            base_qty = int(tickets.get('base', 1))
+        except Exception:
+            base_qty = 1
+        for _ in range(max(0, base_qty)):
+            lines.append(name)
+
+        # fichas por cargo (cada role pode ter quantidade e abreviação)
+        for role_info in tickets.get('roles', {}).values():
+            try:
+                qty = int(role_info.get('quantity', role_info.get('qty', 1)))
+            except Exception:
+                qty = 1
+            abbr = (role_info.get('abbreviation') or role_info.get('abreviation') or role_info.get('abbrev') or '').strip()
+            for _ in range(max(0, qty)):
+                lines.append(f"{name} {abbr}" if abbr else name)
+
+        # tags (automática/manual) — usa abreviação de tag se houver, senão "TAG"
+        tag_qty = int(tickets.get('tag', 0) or 0) + int(tickets.get('manual_tag', 0) or 0)
+        if tag_qty > 0:
+            tag_abbr = (tickets.get('tag_text') or tickets.get('tag_abbreviation') or '').strip() or 'TAG'
+            for _ in range(tag_qty):
+                lines.append(f"{name} {tag_abbr}")
+
+    if not lines:
+        await interaction.followup.send("Nenhum participante para exportar.", ephemeral=True)
+        return
+
+    now = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    filename = f"marbles_participantes_{tipo}_{now}.txt"
+    content = "\n".join(lines) + "\n"
+    bio = io.BytesIO(content.encode('utf-8'))
+    bio.seek(0)
+    await interaction.followup.send(file=discord.File(fp=bio, filename=filename))
 
 @bot.tree.command(name="atualizar", description="[ADMIN] Recalcula fichas de todos os participantes")
 @app_commands.default_permissions(administrator=True)
@@ -1581,17 +1598,9 @@ def get_total_tickets(tickets: dict) -> int:
 if __name__ == "__main__":
     # carrega variáveis de ambiente (já usa load_dotenv no topo)
     BOT_TOKEN = os.getenv("BOT_TOKEN")
-    
-    # Adicione estes logs para debug
-    logging.info("Verificando variáveis de ambiente...")
-    logging.info(f"Variáveis disponíveis: {list(os.environ.keys())}")
-    
     if not BOT_TOKEN:
         logging.error("BOT_TOKEN não encontrado nas variáveis de ambiente")
         exit(1)
-    
-    # Log do início do token (seguro, só mostra os primeiros caracteres)
-    logging.info(f"Token encontrado (primeiros caracteres): {BOT_TOKEN[:7]}...")
 
     # inicia Flask em thread antes de iniciar o cliente/bot
     Thread(target=run_flask, daemon=True).start()
