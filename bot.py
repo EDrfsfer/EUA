@@ -372,11 +372,8 @@ async def on_ready():
         pass
     # ---- fim da movimentação ----
 
-    try:
-        synced = await bot.tree.sync()
-        logger.info(f"Sincronizados {len(synced)} comandos")
-    except Exception as e:
-        logger.error(f"Erro ao sincronizar comandos: {e}")
+    synced = await bot.tree.sync()
+    logger.info(f"Sincronizados {len(synced)} comandos")
 
 @bot.event
 async def on_message(message):
@@ -477,16 +474,11 @@ async def verificar(interaction: discord.Interaction):
 
 # antigo (causa do erro)
 # @bot.tree.command(name="setup_inscricao", description="[ADMIN] Configura o sistema de inscrições")
-# @app_commands.default_prmissions(administrator=True)
 # @app_commands.describe(...)
 
 # novo — movendo a permissão para o decorator do comando
-@bot.tree.command(
-    name="setup_inscricao",
-    description="[ADMIN] Configura o sistema de inscrições"
-)
+@bot.tree.command(name="setup_inscricao", description="[ADMIN] Configura o sistema de inscrições")
 @app_commands.guild_only()
-@app_commands.default_permissions(administrator=True)
 @app_commands.describe(
     canal_botao="Canal onde será enviado o botão de inscrição",
     canal_inscricoes="Canal onde serão postadas as inscrições",
@@ -502,7 +494,6 @@ async def setup_inscricao(
     midia: Optional[discord.Attachment] = None,
     verificar_botao: Optional[bool] = False
 ):
-    # checagem de permissão manual (compatível com qualquer versão)
     if not is_admin_or_moderator(interaction):
         await interaction.response.send_message(
             "❌ Você não tem permissão para usar este comando.",
@@ -567,7 +558,6 @@ def is_admin_or_moderator(interaction: discord.Interaction) -> bool:
 
 @bot.tree.command(name="hashtag", description="[ADMIN] Define a hashtag obrigatória")
 @app_commands.guild_only()
-@app_commands.default_permissions(administrator=True)
 @app_commands.describe(hashtag="Hashtag obrigatória para inscrição")
 async def hashtag(interaction: discord.Interaction, hashtag: str):
     if not is_admin_or_moderator(interaction):
@@ -594,7 +584,6 @@ async def hashtag(interaction: discord.Interaction, hashtag: str):
     logger.info(f"Hashtag definida como '{hashtag}' por {interaction.user}")
 
 @bot.tree.command(name="tag", description="[ADMIN] Configura a tag do servidor")
-@app_commands.default_permissions(administrator=True)
 @app_commands.describe(
     acao="Ação a realizar",
     texto="Texto da tag do servidor",
@@ -606,6 +595,13 @@ async def tag(
     texto: Optional[str] = None,
     quantidade: Optional[int] = 1
 ):
+    if not is_admin_or_moderator(interaction):
+        await interaction.response.send_message(
+            "❌ Você não tem permissão para usar este comando.",
+            ephemeral=True
+        )
+        return
+    
     if acao == "status":
         tag_config = db.get_tag()
         status = "✅ Ativada" if tag_config["enabled"] else "❌ Desativada"
@@ -693,7 +689,6 @@ async def tag(
 
 @bot.tree.command(name="fichas", description="[ADMIN] Adiciona um cargo bônus")
 @app_commands.guild_only()
-@app_commands.default_permissions(administrator=True)
 @app_commands.describe(
     cargo="Cargo que dará fichas bônus",
     quantidade="Quantidade de fichas bônus",
@@ -733,9 +728,15 @@ async def fichas(
     logger.info(f"Cargo bônus adicionado: {cargo.name} ({quantidade} fichas, {abbrev}) por {interaction.user}")
 
 @bot.tree.command(name="tirar", description="[ADMIN] Remove um cargo bônus")
-@app_commands.default_permissions(administrator=True)
 @app_commands.describe(cargo="Cargo a ser removido dos bônus")
 async def tirar(interaction: discord.Interaction, cargo: discord.Role):
+    if not is_admin_or_moderator(interaction):
+        await interaction.response.send_message(
+            "❌ Você não tem permissão para usar este comando.",
+            ephemeral=True
+        )
+        return
+    
     if db.remove_bonus_role(cargo.id):
         await interaction.response.send_message(
             f"✅ Cargo {cargo.mention} removido dos bônus!",
@@ -749,9 +750,15 @@ async def tirar(interaction: discord.Interaction, cargo: discord.Role):
         )
 
 @bot.tree.command(name="lista", description="[ADMIN] Lista os participantes")
-@app_commands.default_permissions(administrator=True)
 @app_commands.describe(tipo="Tipo de listagem")
 async def lista(interaction: discord.Interaction, tipo: Literal["simples", "com_fichas"]):
+    if not is_admin_or_moderator(interaction):
+        await interaction.response.send_message(
+            "❌ Você não tem permissão para usar este comando.",
+            ephemeral=True
+        )
+        return
+
     participants = db.get_all_participants()
     
     if not participants:
@@ -799,14 +806,15 @@ async def lista(interaction: discord.Interaction, tipo: Literal["simples", "com_
     description="[ADMIN] Exporta lista de participantes compatível com Marbles on Stream (CSV)"
 )
 @app_commands.guild_only()
-@app_commands.default_permissions(administrator=True)
 @app_commands.describe(tipo='simples|com_fichas')
 async def exportar(interaction: discord.Interaction, tipo: Literal['simples','com_fichas'] = 'com_fichas'):
-    """Gera .csv pronto para importar no Marbles on Stream.
-    Em 'simples' = 1 linha por participante.
-    Em 'com_fichas' = repete o nome por cada ficha exatamente como /lista (com abreviação das fichas),
-    mas altera o sobrenome para as duas primeiras letras + '.' (ex: 'Rafael Fe.') e remove aspas.
-    """
+    if not is_admin_or_moderator(interaction):
+        await interaction.response.send_message(
+            "❌ Você não tem permissão para usar este comando.",
+            ephemeral=True
+        )
+        return
+    
     await interaction.response.defer(ephemeral=True)
     participants = db.get_all_participants() or {}
 
@@ -818,14 +826,11 @@ async def exportar(interaction: discord.Interaction, tipo: Literal['simples','co
         if not first and not last:
             continue
 
-        # formato de sobrenome abreviado: pegar primeiro token do sobrenome e tomar 2 chars
-        last_token = last.split()[0] if last else ""
-        last_abbr = (last_token[:2].capitalize() + ".") if last_token else ""
+        full_name = f"{first} {last}".strip()
 
         if tipo == "simples":
-            name = f"{first} {last_abbr}".strip()
-            # tira aspas caso existam
-            name = name.replace('"', "").replace("'", "")
+            # Mantém nome e sobrenome completos
+            name = full_name.replace('"', "").replace("'", "")
             lines.append(name)
             continue
 
@@ -833,42 +838,27 @@ async def exportar(interaction: discord.Interaction, tipo: Literal['simples','co
         try:
             entries = utils.format_detailed_entry(first, last, data.get("tickets", {}), interaction.guild)
         except Exception:
-            # fallback simples: inclui base + roles/tags manualmente se utils falhar
-            entries = [f"{first} {last}"]
+            entries = [full_name]
             tickets = data.get("tickets", {}) or {}
-            # roles
             for role_info in (tickets.get("roles") or {}).values():
                 qty = int(role_info.get("quantity", role_info.get("qty", 1)) or 1)
                 abbr = (role_info.get("abbreviation") or role_info.get("abreviation") or "").strip()
                 for _ in range(qty):
-                    entries.append(f"{first} {last} {abbr}".strip())
-            # tags
+                    entries.append(f"{full_name} {abbr}".strip())
             tag_qty = int(tickets.get("tag", 0) or 0) + int(tickets.get("manual_tag", 0) or 0)
             tag_abbr = (tickets.get("tag_text") or tickets.get("tag_abbreviation") or "").strip() or "TAG"
             for _ in range(tag_qty):
-                entries.append(f"{first} {last} {tag_abbr}".strip())
+                entries.append(f"{full_name} {tag_abbr}".strip())
 
-        # transforma cada linha trocando sobrenome completo pela forma abreviada e removendo aspas
-        full_name = f"{first} {last}".strip()
-        short_name = f"{first} {last_abbr}".strip()
+        # NÃO troca por abreviação, mantém nome completo
         for e in entries:
-            # substitui apenas a primeira ocorrência do nome completo (caso já venha com abreviação de ficha)
-            if full_name and full_name in e:
-                new = e.replace(full_name, short_name, 1)
-            else:
-                # se não encontrar o full_name (por algum formato diferente), tenta inserir short_name no começo
-                new = e
-                if not new.startswith(first):
-                    new = f"{short_name} {new}".strip()
-            # remove aspas simples/duplas e strip
-            new = new.replace('"', "").replace("'", "").strip()
+            new = e.replace('"', "").replace("'", "").strip()
             lines.append(new)
 
     if not lines:
         await interaction.followup.send("Nenhum participante para exportar.", ephemeral=True)
         return
 
-    # gera CSV simples: uma coluna, sem cabeçalho, sem aspas (já removidas)
     csv_text = "\n".join(lines) + "\n"
     bio = io.BytesIO(csv_text.encode("utf-8"))
     bio.seek(0)
@@ -877,8 +867,14 @@ async def exportar(interaction: discord.Interaction, tipo: Literal['simples','co
     await interaction.followup.send(file=discord.File(fp=bio, filename=filename))
 
 @bot.tree.command(name="atualizar", description="[ADMIN] Recalcula fichas de todos os participantes")
-@app_commands.default_permissions(administrator=True)
 async def atualizar(interaction: discord.Interaction):
+    if not is_admin_or_moderator(interaction):
+        await interaction.response.send_message(
+            "❌ Você não tem permissão para usar este comando.",
+            ephemeral=True
+        )
+        return
+    
     await interaction.response.defer(ephemeral=True)
     
     participants = db.get_all_participants()
@@ -918,8 +914,14 @@ async def atualizar(interaction: discord.Interaction):
     logger.info(f"Fichas atualizadas por {interaction.user}: {updated} sucesso, {errors} erros")
 
 @bot.tree.command(name="estatisticas", description="[ADMIN] Mostra estatísticas do sorteio")
-@app_commands.default_permissions(administrator=True)
 async def estatisticas(interaction: discord.Interaction):
+    if not is_admin_or_moderator(interaction):
+        await interaction.response.send_message(
+            "❌ Você não tem permissão para usar este comando.",
+            ephemeral=True
+        )
+        return
+    
     stats = db.get_statistics()
     
     embed = discord.Embed(
@@ -971,7 +973,6 @@ async def estatisticas(interaction: discord.Interaction):
 
 @bot.tree.command(name="limpar", description="[ADMIN] Limpa dados do sistema")
 @app_commands.guild_only()
-@app_commands.default_permissions(administrator=True)
 async def limpar(interaction: discord.Interaction):
     if not is_admin_or_moderator(interaction):
         await interaction.response.send_message(
@@ -1239,7 +1240,6 @@ async def limpar(interaction: discord.Interaction):
             pass
 
 @bot.tree.command(name="blacklist", description="[ADMIN] Gerencia a blacklist")
-@app_commands.default_permissions(administrator=True)
 @app_commands.describe(
     acao="Ação a realizar",
     usuario="Usuário para banir/desbanir",
@@ -1251,6 +1251,13 @@ async def blacklist(
     usuario: Optional[discord.User] = None,
     motivo: Optional[str] = None
 ):
+    if not is_admin_or_moderator(interaction):
+        await interaction.response.send_message(
+            "❌ Você não tem permissão para usar este comando.",
+            ephemeral=True
+        )
+        return
+    
     if acao == "lista":
         blacklist_data = db.get_blacklist()
         
@@ -1320,7 +1327,6 @@ async def blacklist(
             )
 
 @bot.tree.command(name="chat", description="[ADMIN] Bloqueia/desbloqueia chat")
-@app_commands.default_permissions(administrator=True)
 @app_commands.describe(
     acao="Ação a realizar",
     canal="Canal a ser bloqueado"
@@ -1330,6 +1336,13 @@ async def chat(
     acao: Literal["on", "off", "status"],
     canal: Optional[discord.TextChannel] = None
 ):
+    if not is_admin_or_moderator(interaction):
+        await interaction.response.send_message(
+            "❌ Você não tem permissão para usar este comando.",
+            ephemeral=True
+        )
+        return
+    
     if acao == "status":
         chat_lock = db.get_chat_lock()
         status = "🔒 Bloqueado" if chat_lock["enabled"] else "🔓 Desbloqueado"
@@ -1375,7 +1388,6 @@ async def chat(
         logger.info(f"Chat desbloqueado por {interaction.user}")
 
 @bot.tree.command(name="anunciar", description="[ADMIN] Envia um anúncio")
-@app_commands.default_permissions(administrator=True)
 @app_commands.describe(
     canal="Canal onde enviar o anúncio",
     mensagem="Mensagem do anúncio",
@@ -1393,6 +1405,13 @@ async def anunciar(
     cor: Optional[str] = None,
     imagem: Optional[discord.Attachment] = None
 ):
+    if not is_admin_or_moderator(interaction):
+        await interaction.response.send_message(
+            "❌ Você não tem permissão para usar este comando.",
+            ephemeral=True
+        )
+        return
+
     try:
         await interaction.response.defer(ephemeral=True)
         
@@ -1434,7 +1453,6 @@ async def anunciar(
         )
 
 @bot.tree.command(name="controle_acesso", description="[ADMIN] Gerencia acesso de moderadores ao bot")
-@app_commands.default_permissions(administrator=True)
 @app_commands.describe(
     acao="Ação a realizar",
     usuario="Usuário a adicionar/remover"
@@ -1444,6 +1462,13 @@ async def controle_acesso(
     acao: Literal["adicionar", "remover", "lista"],
     usuario: Optional[discord.User] = None
 ):
+    if not is_admin_or_moderator(interaction):
+        await interaction.response.send_message(
+            "❌ Você não tem permissão para usar este comando.",
+            ephemeral=True
+        )
+        return
+    
     if acao == "lista":
         moderators = db.get_moderators()
         
@@ -1501,7 +1526,6 @@ async def controle_acesso(
 
 # Modifique o comando tag_manual removendo a verificação de inscrição
 @bot.tree.command(name="tag_manual", description="[ADMIN] Concede TAG manual a um usuário")
-@app_commands.default_permissions(administrator=True)
 @app_commands.describe(
     usuario="Usuário que receberá a TAG",
     quantidade="Quantidade de fichas extras da TAG (padrão: 1)"
@@ -1544,9 +1568,15 @@ async def tag_manual(
         logger.info(f"TAG manual ({quantidade} fichas) concedida a {usuario} por {interaction.user}")
 
 @bot.tree.command(name="sync", description="[ADMIN] Sincroniza comandos do bot")
-@app_commands.default_permissions(administrator=True)
 @app_commands.describe(guild_id="ID do servidor (opcional, vazio para global)")
 async def sync(interaction: discord.Interaction, guild_id: Optional[str] = None):
+    if not is_admin_or_moderator(interaction):
+        await interaction.response.send_message(
+            "❌ Você não tem permissão para usar este comando.",
+            ephemeral=True
+        )
+        return
+    
     await interaction.response.defer(ephemeral=True)
     
     try:
@@ -1611,26 +1641,139 @@ def get_total_tickets(tickets: dict) -> int:
     
     return total
 
+@bot.tree.command(name="adicionar_participante", description="[ADMIN] Adiciona manualmente um participante à lista")
+@app_commands.describe(
+    usuario="Usuário a ser adicionado",
+    primeiro_nome="Primeiro nome do participante",
+    sobrenome="Sobrenome do participante",
+    hashtag="Hashtag obrigatória"
+)
+async def adicionar_participante(
+    interaction: discord.Interaction,
+    usuario: discord.User,
+    primeiro_nome: str,
+    sobrenome: str,
+    hashtag: str
+):
+    if not is_admin_or_moderator(interaction):
+        await interaction.response.send_message(
+            "❌ Você não tem permissão para usar este comando.",
+            ephemeral=True
+        )
+        return
+    
+    try:
+        await interaction.response.defer(ephemeral=True)
+        
+        if db.is_blacklisted(usuario.id):
+            await interaction.followup.send(
+                "❌ Este usuário está na blacklist e não pode ser adicionado.",
+                ephemeral=True
+            )
+            return
+        
+        first_name = primeiro_nome.strip()
+        last_name = sobrenome.strip()
+        hashtag_input = hashtag.strip()
+        
+        valid, error_msg = utils.validate_full_name(first_name, last_name)
+        if not valid:
+            await interaction.followup.send(error_msg, ephemeral=True)
+            return
+        
+        if db.is_name_taken(first_name, last_name):
+            await interaction.followup.send(
+                "❌ Este nome já foi registrado por outro participante.",
+                ephemeral=True
+            )
+            return
+        
+        required_hashtag = db.get_hashtag()
+        if not required_hashtag:
+            await interaction.followup.send(
+                "⚠️ Nenhuma hashtag foi configurada ainda. Contate um administrador.",
+                ephemeral=True
+            )
+            return
+        
+        if hashtag_input.lower() != required_hashtag.lower():
+            await interaction.followup.send(
+                f"❌ Hashtag incorreta! A hashtag correta é: `{required_hashtag}`",
+                ephemeral=True
+            )
+            return
+        
+        inscricao_channel_id = db.get_inscricao_channel()
+        if not inscricao_channel_id:
+            await interaction.followup.send(
+                "⚠️ Canal de inscrições não configurado. Contate um administrador.",
+                ephemeral=True
+            )
+            return
+        
+        inscricao_channel = interaction.guild.get_channel(inscricao_channel_id)
+        if not inscricao_channel:
+            await interaction.followup.send(
+                "⚠️ Canal de inscrições não encontrado. Contate um administrador.",
+                ephemeral=True
+            )
+            return
+        
+        bonus_roles = db.get_bonus_roles()
+        tag_config = db.get_tag()
+        
+        # Aqui pega o membro correto!
+        member = interaction.guild.get_member(usuario.id)
+        if not member:
+            await interaction.followup.send(
+                "❌ Não foi possível encontrar o usuário no servidor.",
+                ephemeral=True
+            )
+            return
+        
+        tickets = utils.calculate_tickets(
+            member,
+            bonus_roles,
+            tag_config["enabled"],
+            tag_config["text"],
+            tag_config["quantity"]
+        )
+        
+        total_tickets = utils.get_total_tickets(tickets)
+        
+        msg_content = f"{member.mention}\n{first_name} {last_name}\n{required_hashtag}"
+        
+        msg = await inscricao_channel.send(msg_content)
+        await msg.add_reaction("✅")  # Adiciona reação de verificado
+            
+        db.add_participant(
+            usuario.id,
+            first_name,
+            last_name,
+            tickets,
+            msg.id
+        )
+        
+        logger.info(f"Nova inscrição manual: {first_name} {last_name} ({usuario.id}) - {total_tickets} fichas")
+        
+        await interaction.followup.send(
+            f"✅ Participante adicionado: {member.mention} ({first_name} {last_name})",
+            ephemeral=True
+        )
+        
+    except Exception as e:
+        logger.error(f"Erro ao adicionar participante manualmente: {e}", exc_info=True)
+        await interaction.followup.send(
+            "❌ Ocorreu um erro ao adicionar o participante. Tente novamente.",
+            ephemeral=True
+        )
+
 if __name__ == "__main__":
-    # carrega variáveis de ambiente (já usa load_dotenv no topo)
     BOT_TOKEN = os.getenv("BOT_TOKEN")
     if not BOT_TOKEN:
-        logging.error("BOT_TOKEN não encontrado nas variáveis de ambiente")
+        logger.error("BOT_TOKEN não encontrado nas variáveis de ambiente")
         exit(1)
 
-    # inicia Flask em thread antes de iniciar o cliente/bot
+    # Inicia o Flask em uma thread separada
     Thread(target=run_flask, daemon=True).start()
-    logging.info(f"Flask server iniciado na porta {os.getenv('PORT', 5000)}")
-
-    try:
-        # use o nome real da sua instância (bot.run(...) ou client.run(...))
-        if 'bot' in globals():
-            globals()['bot'].run(BOT_TOKEN)
-        elif 'client' in globals():
-            globals()['client'].run(BOT_TOKEN)
-        else:
-            logging.error('Nenhuma instância de bot/client encontrada para executar.')
-            exit(1)
-    except Exception as e:
-        logging.error(f"Erro ao iniciar o bot: {e}", exc_info=True)
-        exit(1)
+    bot.run(BOT_TOKEN)
